@@ -30,13 +30,17 @@ struct Cache {
     theirs: Option<Arc<DisplayList>>,
 }
 
-/// The whole other drawing for the left half: rebuilt for another drawing or zoom band, or a
-/// view outside the area it was built for.
-#[derive(Clone, Default)]
-struct OtherCache {
-    key: (usize, i64, bool),
+/// The other drawing for the left half: its display list for a zoom band and area, the mesh
+/// on the GPU, and the background build of the next one. Built off the UI thread like the
+/// canvas's own list (see [`super::rebuild`]); the old list stays on screen until it lands.
+#[derive(Default)]
+pub(crate) struct Pane {
+    key: Option<super::ListKey>,
     window: Option<cadcraft_engine::geom::Bounds2>,
     list: Option<Arc<DisplayList>>,
+    slot: crate::gpu::MeshSlot,
+    mesh: Option<(u64, Vec2)>,
+    job: Option<super::rebuild::Job>,
 }
 
 /// Side by side: the left half of `full` for the other drawing and the right half for this one;
@@ -211,7 +215,7 @@ fn pane_label(p: &egui::Painter, rect: Rect, name: &str) {
 
 /// The other drawing in the left half, dimmed, with what is only there drawn over it.
 fn paint_other(
-    app: &CadApp,
+    app: &mut CadApp,
     ctx: &egui::Context,
     p: &egui::Painter,
     xf: &Xf,
@@ -223,34 +227,117 @@ fn paint_other(
     p.rect_filled(xf.rect, 0.0, t.canvas);
     super::draw_grid(app, p, xf);
     let px = 1.0 / xf.scale.max(1e-300);
-    let band = px.max(1e-300).log2().floor() as i64;
-    let lwdisplay = app.session.settings.lwdisplay;
+    let band = px.max(1e-300).log2().floor() as i32;
+    let (lwdisplay, transparency) = (app.session.settings.lwdisplay, app.session.settings.transparency_display);
     let visible = xf.world_bounds();
-    let key = (Arc::as_ptr(other) as usize, band, lwdisplay);
-    let oid = id().with("other");
-    let mut cache: OtherCache = ctx.data_mut(|d| d.get_temp(oid)).unwrap_or_default();
-    let inside = cache.window.is_none_or(|w| visible.is_empty() || w.contains_box(&visible));
-    if cache.key != key || cache.list.is_none() || !inside {
+    let view_height = f64::from(xf.rect.height()) / xf.scale.max(1e-300);
+    let key: super::ListKey = (0, 0, band, band, lwdisplay, transparency, Arc::as_ptr(other) as usize, 0);
+    let gpu = app.canvas.gpu.is_some();
+    let device = app.canvas.gpu_device.clone();
+    let pane = &mut app.canvas.compare_pane;
+    // A finished build replaces the list, unless it is for another drawing.
+    if let Some(job) = &pane.job {
+        match job.poll() {
+            super::rebuild::Poll::Pending => {}
+            super::rebuild::Poll::Done(built) => {
+                let (job_key, window) = (job.key, job.window);
+                pane.job = None;
+                if job_key.6 == key.6 {
+                    install(pane, job_key, window, *built);
+                }
+            }
+            super::rebuild::Poll::Lost => pane.job = None,
+        }
+    }
+    let current = pane.key == Some(key) && pane.list.is_some() && pane.window.is_none_or(|w| visible.is_empty() || w.contains_box(&visible));
+    if !current && !pane.job.as_ref().is_some_and(|j| j.serves(&key, &visible)) {
+        pane.job = None;
         let opts = cadcraft_render::Options {
-            tolerance: 2f64.powi(band as i32) * 0.5,
-            min_dash: 2f64.powi(band as i32) * 2.0,
+            tolerance: 2f64.powi(band) * 0.5,
+            min_dash: 2f64.powi(band) * 2.0,
             text: true,
             fill: true,
             lineweights: lwdisplay,
             view: super::build_window(&[(visible, px)]),
-            transparency: app.session.settings.transparency_display,
+            transparency,
             ..Default::default()
         };
-        cache =
-            OtherCache { key, window: opts.view, list: Some(Arc::new(cadcraft_render::build(other, &cadcraft_engine::doc::Space::Model, &opts))) };
-        ctx.data_mut(|d| d.insert_temp(oid, cache.clone()));
+        let window = opts.view;
+        let mesh = gpu.then(|| super::rebuild::MeshRequest { view_center: xf.center, view_height, model_bg: bg, paper_bg: bg, lwdisplay, device });
+        let req = super::rebuild::Request { doc: other.clone(), space: cadcraft_engine::doc::Space::Model, opts: opts.clone(), mesh };
+        match super::rebuild::spawn(req, key, window, ctx) {
+            Some(job) => pane.job = Some(job),
+            // No threads (the web build): build here.
+            None => {
+                let list = cadcraft_render::build(other, &cadcraft_engine::doc::Space::Model, &opts);
+                pane.list = Some(Arc::new(list));
+                pane.key = Some(key);
+                pane.window = window;
+                pane.mesh = None;
+            }
+        }
     }
-    if let Some(l) = &cache.list {
-        super::draw_list(p, xf, l, bg, lwdisplay);
+    match &pane.list {
+        Some(l) if gpu => {
+            let (mesh_key, origin) = match pane.mesh {
+                Some(m) => m,
+                None => {
+                    let origin = crate::gpu::choose_origin(&l.bounds, xf.center, view_height);
+                    if let Ok(mut slot) = pane.slot.lock() {
+                        *slot = Some(crate::gpu::build_mesh(l, origin, bg, lwdisplay));
+                    }
+                    let m = (mesh_id(&key, Arc::as_ptr(l) as usize), origin);
+                    pane.mesh = Some(m);
+                    m
+                }
+            };
+            let center = xf.rect.center();
+            p.add(egui_wgpu::Callback::new_paint_callback(
+                xf.rect,
+                crate::gpu::CanvasCallback {
+                    key: mesh_key,
+                    slot: pane.slot.clone(),
+                    offset: [(origin.x - xf.center.x) as f32, (origin.y - xf.center.y) as f32],
+                    scale: xf.scale as f32,
+                    center: [center.x, center.y],
+                    layer: crate::gpu::LAYER_COMPARE,
+                    xform: crate::gpu::IDENTITY_XFORM,
+                    dash: 0.0,
+                    stencil: crate::gpu::Stencil::Off,
+                },
+            ));
+        }
+        Some(l) => super::draw_list(p, xf, l, bg, lwdisplay),
+        None => {
+            let g = p.layout_no_wrap(crate::tl!("Loading…").to_string(), crate::theme::small(), t.text_dim);
+            p.galley(xf.rect.center() - g.size() / 2.0, g, t.text_dim);
+        }
     }
     p.rect_filled(xf.rect, 0.0, t.canvas.gamma_multiply(0.75));
     if let Some(l) = theirs {
         let all: Vec<usize> = (0..l.prims.len()).collect();
         draw_highlight(p, xf, l, &all, t.compare_other, super::Look { width: 2.0, dashed: false });
     }
+}
+
+/// A background build's list (and mesh) into the pane.
+fn install(pane: &mut Pane, key: super::ListKey, window: Option<cadcraft_engine::geom::Bounds2>, built: super::rebuild::Built) {
+    let list = Arc::new(built.list);
+    pane.mesh = built.mesh.map(|m| {
+        if let Ok(mut slot) = pane.slot.lock() {
+            *slot = Some(m.data);
+        }
+        (mesh_id(&key, Arc::as_ptr(&list) as usize), m.origin)
+    });
+    pane.list = Some(list);
+    pane.key = Some(key);
+    pane.window = window;
+}
+
+/// The id of the mesh made from list `list` (its address) for `key`.
+fn mesh_id(key: &super::ListKey, list: usize) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (key, list, "compare").hash(&mut h);
+    h.finish()
 }

@@ -96,6 +96,8 @@ pub struct CanvasState {
     pan_last: Option<Pos2>,
     /// Panning from the other drawing's half of a side-by-side comparison: the last position.
     compare_pan: Option<Pos2>,
+    /// The other drawing of a side-by-side comparison: its list, mesh and background build.
+    compare_pane: compare::Pane,
     /// True when the latest scroll came from a trackpad (or other precise-scrolling device):
     /// scrolling then pans and pinch zooms. A notched mouse wheel clears it so the wheel zooms.
     scroll_pans: bool,

@@ -318,8 +318,8 @@ pub struct CanvasCallback {
     pub scale: f32,
     /// Canvas rect centre in points.
     pub center: [f32; 2],
-    /// Which buffers to draw: [`LAYER_DRAWING`], [`LAYER_DRAG`], [`LAYER_HIGHLIGHT`] or
-    /// [`LAYER_VIEWPORT`].
+    /// Which buffers to draw: [`LAYER_DRAWING`], [`LAYER_DRAG`], [`LAYER_HIGHLIGHT`],
+    /// [`LAYER_VIEWPORT`], [`LAYER_MASK`] or [`LAYER_COMPARE`].
     pub layer: usize,
     /// Affine transform applied to the origin-relative positions before `offset`: the linear
     /// part (a, b, c, d as in `Mat3`) and the translation. [`IDENTITY_XFORM`] for the drawing.
@@ -352,6 +352,8 @@ pub const LAYER_HIGHLIGHT: usize = 2;
 pub const LAYER_VIEWPORT: usize = 3;
 /// The outline of the active viewport when it is clipped (stencil only, see [`Stencil`]).
 pub const LAYER_MASK: usize = 4;
+/// The other drawing of a side-by-side comparison, in the left half of the canvas.
+pub const LAYER_COMPARE: usize = 5;
 
 /// Opacity of filled areas in the selection and hover highlight: see-through, so the lines and
 /// text on (and under) a highlighted hatch stay visible, as the reference app's dot pattern does.
@@ -593,7 +595,7 @@ impl Resources {
                 quad: pipeline("cad_clip_quads", "vs_quad", TriangleList, instance_layout(), Stencil::Inside),
             }),
             linear_out: target.format.is_srgb(),
-            layers: (0..=LAYER_MASK).map(|_| layer()).collect(),
+            layers: (0..=LAYER_COMPARE).map(|_| layer()).collect(),
         }
     }
 }
