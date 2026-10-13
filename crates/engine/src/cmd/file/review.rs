@@ -1,8 +1,10 @@
 //! COMPARE as a review page: one self-contained HTML file (inline SVG and CSS, no scripts) to
 //! attach to a pull request, publish as a CI artifact or mail. It holds the counts, an overview
 //! of where the drawing changed, both versions side by side, a close-up of every area with
-//! changes, and the list of changed objects. It opens from disk in any browser; zoom is the
-//! browser's (the drawings are vector).
+//! changes, and the list of changed objects. It opens from disk in any browser. Each pair of
+//! pictures pans and zooms together (wheel or pinch at the cursor, drag, double-click to reset):
+//! a few lines of script written into the page, the only script CADCraft writes; without it the
+//! page still shows everything.
 
 use std::collections::HashSet;
 use std::fmt::Write as _;
@@ -22,6 +24,36 @@ const MAX_AREAS: usize = 40;
 const MAX_LISTED: usize = 500;
 /// Width of each picture in CSS pixels; its level of detail follows.
 const PICTURE_PX: f64 = 800.0;
+/// How far a close-up zooms in with its curves still smooth: they are drawn this much finer
+/// than the picture needs at 1:1.
+const ZOOM_DETAIL: f64 = 8.0;
+/// The same for the overview, which covers the most and would make most of the page; the
+/// close-ups below it show the details.
+const OVERVIEW_DETAIL: f64 = 2.0;
+
+/// Pan and zoom for each pair of pictures: wheel or pinch at the pointer, drag to pan, double-
+/// click to reset; the two pictures of a pair share one view.
+const PAN_ZOOM: &str = r#"<script>
+document.querySelectorAll('.pair').forEach(function(pair){
+ var svgs=[].slice.call(pair.querySelectorAll('svg'));if(!svgs.length)return;
+ var b0=svgs[0].getAttribute('viewBox').split(' ').map(Number),v=b0.slice(),z=[].slice.call(pair.querySelectorAll('.zoom'));
+ function set(){var s=v.join(' ');svgs.forEach(function(e){e.setAttribute('viewBox',s)});var t=(b0[2]/v[2]).toFixed(1)+'×';z.forEach(function(e){e.textContent=t})}
+ function at(x,y,svg){var r=svg.getBoundingClientRect();return[v[0]+(x-r.left)/r.width*v[2],v[1]+(y-r.top)/r.height*v[3]]}
+ function zoom(f,p){var w=Math.min(b0[2],Math.max(b0[2]/400,v[2]*f)),k=w/v[2];v=[p[0]-(p[0]-v[0])*k,p[1]-(p[1]-v[1])*k,w,v[3]*k];set()}
+ svgs.forEach(function(svg){
+  var pts={};
+  svg.addEventListener('wheel',function(e){e.preventDefault();zoom(Math.pow(1.002,e.deltaY*(e.deltaMode?30:1)),at(e.clientX,e.clientY,svg))},{passive:false});
+  svg.addEventListener('pointerdown',function(e){svg.setPointerCapture(e.pointerId);pts[e.pointerId]=[e.clientX,e.clientY]});
+  svg.addEventListener('pointermove',function(e){var p=pts[e.pointerId];if(!p)return;var ids=Object.keys(pts),r=svg.getBoundingClientRect();
+   if(ids.length===1){v[0]-=(e.clientX-p[0])/r.width*v[2];v[1]-=(e.clientY-p[1])/r.height*v[3];set()}
+   else{var o=pts[ids[0]==e.pointerId?ids[1]:ids[0]],d0=Math.hypot(p[0]-o[0],p[1]-o[1]),d1=Math.hypot(e.clientX-o[0],e.clientY-o[1]);
+    if(d0>0&&d1>0)zoom(d0/d1,at((e.clientX+o[0])/2,(e.clientY+o[1])/2,svg))}
+   pts[e.pointerId]=[e.clientX,e.clientY]});
+  ['pointerup','pointercancel'].forEach(function(n){svg.addEventListener(n,function(e){delete pts[e.pointerId]})});
+  svg.addEventListener('dblclick',function(){v=b0.slice();set()});
+ });
+});
+</script>"#;
 
 const RED: &str = "#d33a2c";
 const GREEN: &str = "#16a34a";
@@ -131,7 +163,8 @@ h1{{font-size:22px;margin:8px 0}} h2{{font-size:17px;margin:28px 0 8px;border-bo
 .pair{{display:grid;grid-template-columns:1fr 1fr;gap:12px}} @media(max-width:900px){{.pair{{grid-template-columns:1fr}}}}
 figure{{margin:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#fff}}
 figcaption{{font-size:12px;color:var(--dim);padding:4px 8px;background:var(--bg);border-bottom:1px solid var(--line)}}
-svg{{display:block;width:100%;height:auto}}
+svg{{display:block;width:100%;height:auto;cursor:grab;touch-action:none}} svg:active{{cursor:grabbing}}
+.zoom{{float:right;font-variant-numeric:tabular-nums}} path,rect{{vector-effect:non-scaling-stroke}}
 table{{border-collapse:collapse;width:100%;font-size:13px}} th,td{{text-align:left;padding:3px 8px;border-bottom:1px solid var(--line)}} th{{background:var(--bg)}}
 code{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}} .dim{{color:var(--dim)}}
 .add{{color:{GREEN}}} .rem{{color:{RED}}}
@@ -159,17 +192,17 @@ code{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}} .
     let finest = closeups.iter().map(Bounds2::width).fold(overview.width(), f64::min) / PICTURE_PX;
     let reach = closeups.iter().fold(overview, |a, b| a.union(b));
     let (theirs_list, ours_list) = both(|| drawn(other, &c.space, reach, finest), || drawn(cur, &c.space, reach, finest));
-    h.push_str("<h2>Overview</h2><div class=\"pair\">");
-    figure(&mut h, &theirs_list, overview, &theirs, RED, &areas, &format!("{other_name} (before)"));
-    figure(&mut h, &ours_list, overview, &ours, GREEN, &areas, &format!("{name} (after)"));
+    h.push_str("<h2>Overview</h2><p class=\"dim\">Scroll or pinch on a picture to zoom, drag to pan, double-click to reset. Both pictures of a pair move together.</p><div class=\"pair\">");
+    figure(&mut h, &theirs_list, overview, OVERVIEW_DETAIL, &theirs, RED, &areas, &format!("{other_name} (before)"));
+    figure(&mut h, &ours_list, overview, OVERVIEW_DETAIL, &ours, GREEN, &areas, &format!("{name} (after)"));
     h.push_str("</div>");
     for (i, (a, w)) in areas.iter().zip(&closeups).enumerate() {
         let _ = write!(h, "<h2>Area {}</h2>", i + 1);
         let rows = listed(cur, other, c, Some(*a));
         changes_table(&mut h, &rows);
         h.push_str("<div class=\"pair\">");
-        figure(&mut h, &theirs_list, *w, &theirs, RED, &[], &format!("{other_name} (before)"));
-        figure(&mut h, &ours_list, *w, &ours, GREEN, &[], &format!("{name} (after)"));
+        figure(&mut h, &theirs_list, *w, ZOOM_DETAIL, &theirs, RED, &[], &format!("{other_name} (before)"));
+        figure(&mut h, &ours_list, *w, ZOOM_DETAIL, &ours, GREEN, &[], &format!("{name} (after)"));
         h.push_str("</div>");
     }
     if all_areas.len() > areas.len() {
@@ -177,7 +210,9 @@ code{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}} .
     }
     h.push_str("<h2>All changes</h2>");
     changes_table(&mut h, &listed(cur, other, c, None));
-    let _ = write!(h, r#"<p class="dim">Made by CADCraft COMPARE. Space: {}.</p></main></body></html>"#, esc(&space_name(&c.space)));
+    let _ = write!(h, r#"<p class="dim">Made by CADCraft COMPARE. Space: {}.</p></main>"#, esc(&space_name(&c.space)));
+    h.push_str(PAN_ZOOM);
+    h.push_str("</body></html>");
     h
 }
 
@@ -297,7 +332,7 @@ fn both<A: Send + Default, B: Send>(a: impl FnOnce() -> A + Send, b: impl FnOnce
 /// Drawing `d` within `reach`, curves within half of `px` (drawing units per picture pixel).
 fn drawn(d: &Drawing, space: &Space, reach: Bounds2, px: f64) -> cadcraft_render::DisplayList {
     let opts = cadcraft_render::Options {
-        tolerance: px * 0.5,
+        tolerance: px * 0.5 / ZOOM_DETAIL,
         min_dash: px * 2.0,
         text: true,
         fill: true,
@@ -307,23 +342,25 @@ fn drawn(d: &Drawing, space: &Space, reach: Bounds2, px: f64) -> cadcraft_render
     cadcraft_render::build(d, space, &opts)
 }
 
-/// A figure: `list` in `window`, faded except the objects `marked` (in `color`), the `areas`
-/// outlined and numbered.
+/// A figure: `list` in `window` with `detail` times the points it needs at 1:1, faded except the
+/// objects `marked` (in `color`), the `areas` outlined and numbered.
+#[allow(clippy::too_many_arguments)]
 fn figure(
     h: &mut String,
     list: &cadcraft_render::DisplayList,
     window: Bounds2,
+    detail: f64,
     marked: &HashSet<Handle>,
     color: &str,
     areas: &[Bounds2],
     caption: &str,
 ) {
-    let _ = write!(h, "<figure><figcaption>{caption}</figcaption>");
-    svg(h, list, window, marked, color, areas);
+    let _ = write!(h, "<figure><figcaption>{caption}<span class=\"zoom\">1.0×</span></figcaption>");
+    svg(h, list, window, detail, marked, color, areas);
     h.push_str("</figure>");
 }
 
-fn svg(h: &mut String, list: &cadcraft_render::DisplayList, window: Bounds2, marked: &HashSet<Handle>, color: &str, areas: &[Bounds2]) {
+fn svg(h: &mut String, list: &cadcraft_render::DisplayList, window: Bounds2, detail: f64, marked: &HashSet<Handle>, color: &str, areas: &[Bounds2]) {
     let px = window.width() / PICTURE_PX;
     let (x0, y1) = (window.min.x, window.max.y);
     let (vw, vh) = (window.width(), window.height());
@@ -343,19 +380,22 @@ fn svg(h: &mut String, list: &cadcraft_render::DisplayList, window: Bounds2, mar
             }
             match p.kind {
                 Kind::Polyline => {
-                    // Points closer than half a pixel to the last one written add nothing.
+                    // A point that bends the line by less than half a pixel at the deepest zoom
+                    // the picture is drawn for adds nothing: straight runs of a finely drawn
+                    // curve fold into one segment.
+                    let eps = 0.5 / detail;
+                    let q: Vec<(f64, f64)> = pts.iter().map(|p| tx(*p)).collect();
                     let mut last: Option<(f64, f64)> = None;
-                    for (i, q) in pts.iter().enumerate() {
-                        let (x, y) = tx(*q);
-                        let end = i + 1 == pts.len();
-                        if let Some((lx, ly)) = last
-                            && !end
-                            && (x - lx).abs() < 0.5
-                            && (y - ly).abs() < 0.5
-                        {
-                            continue;
+                    for (i, &(x, y)) in q.iter().enumerate() {
+                        if let (Some((lx, ly)), Some(&(nx, ny))) = (last, q.get(i + 1)) {
+                            let (dx, dy) = (nx - lx, ny - ly);
+                            let len = dx.hypot(dy);
+                            let off = if len < 1e-12 { (x - lx).hypot(y - ly) } else { ((x - lx) * dy - (y - ly) * dx).abs() / len };
+                            if off < eps {
+                                continue;
+                            }
                         }
-                        let _ = write!(lines, "{}{x:.1} {y:.1}", if last.is_none() { "M" } else { "L" });
+                        let _ = write!(lines, "{}{x:.2} {y:.2}", if last.is_none() { "M" } else { "L" });
                         last = Some((x, y));
                     }
                 }
@@ -363,7 +403,7 @@ fn svg(h: &mut String, list: &cadcraft_render::DisplayList, window: Bounds2, mar
                     for t in pts.chunks(3) {
                         if let [a, b, cc] = t {
                             let ((ax, ay), (bx, by), (cx, cy)) = (tx(*a), tx(*b), tx(*cc));
-                            let _ = write!(fills, "M{ax:.1} {ay:.1}L{bx:.1} {by:.1}L{cx:.1} {cy:.1}Z");
+                            let _ = write!(fills, "M{ax:.2} {ay:.2}L{bx:.2} {by:.2}L{cx:.2} {cy:.2}Z");
                         }
                     }
                 }

@@ -66,10 +66,13 @@ here in green, both always showing the same area. Pan and zoom either half; edit
 comparison bar, `compare.export`) writes the comparison as one self-contained HTML file: the
 counts, an overview of every area with changes (numbered) for both versions side by side, a
 close-up of each area with the objects changed there, and the full list of changes. It needs no
-server and no scripts: open it from disk, attach it to a pull request, publish it as a CI
-artifact or mail it. The pictures are SVG drawn as finely as their close-ups need and hold only
-what they show, so the page stays small (about 250 KB for a 12,000-object, 11 MB drawing; about
-10 s to make). `review NEW OLD` compares two files instead of a git version.
+server: open it from disk, attach it to a pull request, publish it as a CI artifact or mail it.
+Scroll or pinch on a picture to zoom at the pointer, drag to pan, double-click to reset; the
+before and after pictures of a pair move together. (That is a few lines of script CADCraft
+writes into the page, the only script it writes; the Rust-only rule is relaxed for this fork.)
+The pictures are SVG with lines that keep their width at any zoom; close-ups are drawn smooth
+to 8× and the overview to 2×, and hold only what they show, so the page stays small (about
+300 KB for a 12,000-object, 11 MB drawing; about 10 s to make). `review NEW OLD` compares two files instead of a git version.
 
 COMPARE takes a branch where it takes a file: `compare` then `main`, `HEAD~3`, a tag or a commit
 id. Scripts and agents: `{"command":"compare","params":{"revision":"main"}}`, and

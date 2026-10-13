@@ -334,7 +334,9 @@ fn exports_a_review_page() {
     assert!(html.starts_with("<!doctype html>"));
     assert!(html.contains("Only in B: <b>1</b>") && html.contains("Only in Drawing1: <b>1</b>") && html.contains("Changed: <b>1</b>"), "counts");
     assert!(html.contains("<h2>Overview</h2>") && html.contains("<h2>Area 1</h2>") && html.contains("<svg"));
-    assert!(!html.contains("<script"), "no scripts");
+    // One script: pan and zoom, written by CADCraft; nothing from the drawing.
+    assert_eq!(html.matches("<script").count(), 1, "only the pan/zoom script");
+    assert!(html.contains("<span class=\"zoom\">1.0×</span>"));
     assert!(html.contains("<td>R&amp;D</td>") && !html.contains("R&D<"), "escaped layer name");
     std::fs::remove_dir_all(&dir).ok();
 }
