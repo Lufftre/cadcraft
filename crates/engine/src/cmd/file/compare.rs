@@ -50,6 +50,8 @@ pub struct Comparison {
     pub regions: Vec<Bounds2>,
     /// The area shown last by next/previous (`None` before the first).
     pub at: Option<usize>,
+    /// Shown side by side: the other drawing to the left, this one to the right, with one view.
+    pub side_by_side: bool,
 }
 
 impl Comparison {
@@ -63,7 +65,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("compare", "Compare Drawings...", run_compare)
             .menu(&["Tools", "Compare Drawings..."])
             .params(
-                "{path} | {data: base64, name} | {document: index or title} | {revision: git branch, tag or commit of the drawing's own file} → {other, added: [{handle, type}], removed, \
+                "{path} | {data: base64, name} | {document: index or title} | {revision: git branch, tag or commit of the drawing's own file}, sideBySide?: bool → {other, added: [{handle, type}], removed, \
                  changed: [{handle, other, type, what}], counts: {added, removed, changed, common}, regions, truncated, message}",
             )
             .noundo()
@@ -75,6 +77,9 @@ pub fn specs() -> Vec<CommandSpec> {
             .interactive(|s| Ok(Box::new(CompareBranchM::new(s)))),
         CommandSpec::new("compare.branches", "Branches to Compare With", run_branches)
             .params("→ {branches}: the git branches the drawing's file can be compared with (`HEAD` last)")
+            .noundo(),
+        CommandSpec::new("compare.sidebyside", "Side by Side", run_side_by_side)
+            .params("{on?: bool (default: switch)} → {sideBySide}: show the other drawing to the left of this one, with one view")
             .noundo(),
         CommandSpec::new("compare.next", "Next Change", |s, _| step(s, 1)).params("→ {region, of}: zoom to the next area with changes").noundo(),
         CommandSpec::new("compare.previous", "Previous Change", |s, _| step(s, -1)).params("→ {region, of}").noundo(),
@@ -191,10 +196,18 @@ impl<'a> Signer<'a> {
     }
     fn geometry(&mut self, k: &EntityKind, depth: usize) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        normalized(k).to_string().hash(&mut h);
+        let mut v = normalized(k);
         if let EntityKind::Insert(i) = k {
+            // An anonymous block (`*U12`, a dynamic block's variant) is renumbered by every save:
+            // it counts by its contents, hashed below, not its name.
+            if is_anonymous(&i.block)
+                && let Some(o) = v.as_object_mut()
+            {
+                o.remove("block");
+            }
             self.block(&i.block, depth).hash(&mut h);
         }
+        v.to_string().hash(&mut h);
         h.finish()
     }
     fn block(&mut self, name: &str, depth: usize) -> u64 {
@@ -203,7 +216,9 @@ impl<'a> Signer<'a> {
             return *v;
         }
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        key.hash(&mut h);
+        if !is_anonymous(name) {
+            key.hash(&mut h);
+        }
         if depth < MAX_BLOCK_DEPTH
             && let Some(b) = self.d.block(name)
         {
@@ -220,6 +235,12 @@ impl<'a> Signer<'a> {
         self.blocks.insert(key, v);
         v
     }
+}
+
+/// `*U12`, `*X3`…: a block a save may renumber (not the `*Model_Space`/`*Paper_Space` blocks).
+fn is_anonymous(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.starts_with('*') && !n.starts_with("*model_space") && !n.starts_with("*paper_space")
 }
 
 fn properties(e: &Entity) -> u64 {
@@ -403,7 +424,9 @@ fn run_compare(s: &mut Session, p: &Value) -> Result<Value> {
         "message": message,
     });
     let changed = changed.into_iter().map(|(a, b, _, _)| (a, b)).collect();
-    s.compare = Some(Comparison { uid, space, other_name: name, other, added, removed, changed, common, truncated, regions, at: None });
+    // Side by side stays as it was for a new comparison; `sideBySide` sets it.
+    let side_by_side = p.get("sideBySide").and_then(Value::as_bool).unwrap_or_else(|| s.compare.as_ref().is_some_and(|c| c.side_by_side));
+    s.compare = Some(Comparison { uid, space, other_name: name, other, added, removed, changed, common, truncated, regions, at: None, side_by_side });
     s.touch();
     Ok(out)
 }
@@ -435,6 +458,13 @@ fn run_close(s: &mut Session, _p: &Value) -> Result<Value> {
     let had = s.compare.take().is_some();
     s.touch();
     Ok(json!({ "closed": had }))
+}
+
+fn run_side_by_side(s: &mut Session, p: &Value) -> Result<Value> {
+    let uid = s.state()?.uid;
+    let c = s.compare.as_mut().filter(|c| c.uid == uid).ok_or_else(|| bad("compare.sidebyside", "no comparison: run COMPARE first"))?;
+    c.side_by_side = p.get("on").and_then(Value::as_bool).unwrap_or(!c.side_by_side);
+    Ok(json!({ "sideBySide": c.side_by_side }))
 }
 
 fn run_branches(s: &mut Session, _p: &Value) -> Result<Value> {

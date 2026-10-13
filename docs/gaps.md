@@ -133,7 +133,7 @@ Detail: [localization-parity.md](localization-parity.md).
 | E3 | Express Tools equivalents (TXT2MTXT, BREAKLINE, BURST, NCOPY exists, SUPERHATCH, Move/Copy/Rotate) | 30–50 |
 | E4 | Plug-in API (owner decision: Rust/WASM plug-ins rather than ObjectARX/.NET) | 30–50 |
 | E5 | CUI customisation and alias (`.pgp`) editor | 15–25 |
-| E6 | Drawings in git ([version-control.md](version-control.md)): readable `git diff` of DWG/DXF (`cadcraft-cli textconv`, `drawing.listing`) a COMPARE summary as git difftool (`cadcraft-cli diff`) and COMPARE against a git branch or commit in the app (Tools → Compare with Branch…, `compare.branch`) landed; left: COMPARE overlay as an image for pull requests, a folder-per-drawing format with one file per object and handles branches can't both allocate, a merge driver and a check after merging. Beyond AutoCAD, which has no branching or merging of drawings | 25–40 |
+| E6 | Drawings in git ([version-control.md](version-control.md)): readable `git diff` of DWG/DXF (`cadcraft-cli textconv`, `drawing.listing`) a COMPARE summary as git difftool (`cadcraft-cli diff`) and COMPARE against a git branch or commit in the app (Tools → Compare with Branch…, `compare.branch`), shown overlaid or side by side, landed; left: COMPARE overlay as an image for pull requests, a folder-per-drawing format with one file per object and handles branches can't both allocate, a merge driver and a check after merging. Beyond AutoCAD, which has no branching or merging of drawings | 25–40 |
 
 ## AI features
 
@@ -147,7 +147,7 @@ Detail: [localization-parity.md](localization-parity.md).
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-13 | minor | Drawings in git: Compare with Branch (COMPARE against a git branch, tag or commit of the drawing's file); `drawing.listing` / `cadcraft-cli textconv` (stable text, one line per object) and `cadcraft-cli diff`; COMPARE reports a text-only edit as "text"; new E6 (branching and merging) and FF15 (round-trip losses the listing shows: attribute layer 0, tilted text, hatches and dimensions) |
+| 2026-10-13 | minor | Drawings in git: Compare with Branch (COMPARE against a git branch, tag or commit of the drawing's file), side by side; COMPARE matches anonymous (dynamic block) blocks by contents, so a re-saved drawing no longer shows its dynamic blocks as changed; `drawing.listing` / `cadcraft-cli textconv` (stable text, one line per object) and `cadcraft-cli diff`; COMPARE reports a text-only edit as "text"; new E6 (branching and merging) and FF15 (round-trip losses the listing shows: attribute layer 0, tilted text, hatches and dimensions) |
 | 2026-10-12 | minor | Object transparency (entity, ByLayer, ByBlock) is drawn: on screen (TRANSPARENCYDISPLAY, on by default), in PNG/SVG exports, and in plots when the page setup's "Plot transparency" is on (PDF alpha, PNG blending, SVG opacity; PLOTTRANSPARENCYOVERRIDE): F14 narrowed |
 | 2026-10-12 | minor | Hatch and Gradient dialog (HATCH, GRADIENT; HPDLGMODE) and Hatch Edit dialog (HATCHEDIT, right-click, double-click a hatch): F13 narrowed to Preview, Inherit Properties and boundary add/remove in edit mode |
 | 2026-10-12 | minor | A bare system variable name typed at the command line (ORTHOMODE, GRIDMODE…) runs SETVAR on that variable, as in AutoCAD; U10 narrowed |

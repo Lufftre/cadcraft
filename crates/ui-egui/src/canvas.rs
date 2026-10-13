@@ -94,6 +94,8 @@ pub struct CanvasState {
     /// The polar or object snap tracking path(s) the cursor is on.
     pub track: Option<snap::tracking::Track>,
     pan_last: Option<Pos2>,
+    /// Panning from the other drawing's half of a side-by-side comparison: the last position.
+    compare_pan: Option<Pos2>,
     /// True when the latest scroll came from a trackpad (or other precise-scrolling device):
     /// scrolling then pans and pinch zooms. A notched mouse wheel clears it so the wheel zooms.
     scroll_pans: bool,
@@ -1226,6 +1228,8 @@ fn wheel_zoom_points(events: &[egui::Event], opts: &egui::InputOptions, page: f3
 pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let t = Tokens::get();
     let full = ui.available_rect_before_wrap();
+    // A side-by-side comparison takes the left half for the other drawing.
+    let (compare_left, full) = compare::split(app, full);
     // Tiled model viewports (VPORTS): the current tile is the drawing area below; `draw_tiles`
     // draws the others.
     let tiles = tile_rects(app, full);
@@ -1243,6 +1247,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     let scale = f64::from(rect.height()) / view.height.max(1e-12);
     let xf = Xf { rect, center: view.center, scale };
     app.canvas.xf = Some(xf);
+    if let Some(left) = compare_left {
+        compare::navigate(app, ui, left, &xf);
+    }
 
     // ---------- input ----------
     let (hover_pos, scroll, mods, middle_down, pressed_primary, pressed_secondary, dbl_middle, dbl_primary) = ui.input(|i| {
@@ -1722,7 +1729,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         }
     }
     app.canvas.draw_ms = crate::now_ms() - t0;
-    compare::paint(app, ui.ctx(), &painter, &xf_paper, rect);
+    compare::paint(app, ui.ctx(), &painter, &xf_paper, rect, compare_left);
     blockedit::paint(app, ui.ctx(), &painter, &xf_paper, rect);
     // Constraint bars and dynamic dimensional constraints (model space, or inside a viewport).
     if sheet.is_none() || active_vp.is_some() {

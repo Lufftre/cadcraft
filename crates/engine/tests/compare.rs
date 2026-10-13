@@ -276,3 +276,41 @@ fn compares_with_a_git_branch() {
     assert!(e.contains("save it"), "{e}");
     assert!(s.execute("compare.branches", &json!({})).is_err());
 }
+
+#[test]
+fn renumbered_anonymous_blocks_are_the_same() {
+    // A dynamic block reference points at an anonymous variant (`*U12`); saving renumbers it.
+    let anon = |name: &str, len: f64| {
+        let mut b = Block::new(name);
+        b.entities.push(Entity::new(cadcraft_engine::doc::Handle(0x900), line(0.0, 0.0, len, 0.0)));
+        b
+    };
+    let insert = |block: &str| {
+        EntityKind::Insert(Insert {
+            block: block.into(),
+            insert: Vec3::ZERO,
+            scale: Vec3::new(1.0, 1.0, 1.0),
+            rotation: 0.0,
+            attribs: Vec::new(),
+            cols: 1,
+            rows: 1,
+            col_spacing: 0.0,
+            row_spacing: 0.0,
+        })
+    };
+    let drawing = |name: &str, len: f64| {
+        let mut d = Drawing::new_imperial();
+        d.blocks.insert(name.into(), Arc::new(anon(name, len)));
+        d.add(&Space::Model, Common::default(), insert(name)).unwrap();
+        d
+    };
+    let mut s = Session::new();
+    s.open_drawing(drawing("*U12", 1.0), "A", None);
+    s.open_drawing(drawing("*U40", 1.0), "B", None);
+    let r = s.execute("compare", &json!({"document": "A"})).unwrap();
+    assert_eq!(counts(&r), (0, 0, 0, 1), "renumbered only: {r}");
+    // Other contents are a change.
+    s.open_drawing(drawing("*U40", 2.0), "C", None);
+    let r = s.execute("compare", &json!({"document": "A"})).unwrap();
+    assert_eq!(counts(&r), (0, 0, 1, 0), "{r}");
+}

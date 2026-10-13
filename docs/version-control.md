@@ -1,6 +1,6 @@
 # Drawings in git
 
-> **Status:** step 1 of 4 (readable diffs, a review summary, compare with a branch in the app) · **Last updated:** 2026-10-13
+> **Status:** step 1 of 4 (readable diffs, a review summary, compare with a branch in the app, side by side) · **Last updated:** 2026-10-13
 
 CADCraft drawings can live in a git repository with readable history: `git diff`, `git log -p`
 and pull requests show which objects changed instead of "Binary files differ". Branching and
@@ -55,6 +55,10 @@ Open the drawing from its git repository and choose **Tools → Compare with Bra
 (the last commit, to see what you changed since): click one, or press Enter for the default. The
 canvas shows the differences against that version of the same file: green only here, red only
 there, unchanged objects dimmed; ◀ ▶ step through the areas with changes, ✕ ends it.
+
+**Side by Side** in the comparison bar (or `compare.sidebyside`) splits the canvas: the other
+version to the left with what is only there in red, this drawing to the right with what is only
+here in green, both always showing the same area. Pan and zoom either half; edit on the right.
 
 COMPARE takes a branch where it takes a file: `compare` then `main`, `HEAD~3`, a tag or a commit
 id. Scripts and agents: `{"command":"compare","params":{"revision":"main"}}`, and
