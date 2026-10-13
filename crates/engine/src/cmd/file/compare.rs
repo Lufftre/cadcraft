@@ -132,6 +132,23 @@ fn read_path(_path: &str) -> Result<Vec<u8>> {
     Err(bad("compare", "paths are not available on the web: open the other drawing and compare with it by name (`document`)"))
 }
 
+/// What differs between two matched objects, in COMPARE's words: "geometry", "properties",
+/// "text" (only a text's words), combinations of these, or "block contents" (a block
+/// reference whose block definition changed).
+pub(super) fn what_changed(x: &Entity, y: &Entity) -> &'static str {
+    let geom = normalized(&x.kind) != normalized(&y.kind);
+    let props = properties(x) != properties(y);
+    let words = only_words_differ(&x.kind, &y.kind);
+    match (geom, props) {
+        (true, true) if words => "text and properties",
+        (true, false) if words => "text",
+        (true, true) => "geometry and properties",
+        (true, false) => "geometry",
+        (false, true) => "properties",
+        (false, false) => "block contents",
+    }
+}
+
 /// Two texts (text, mtext, attribute definition) that differ only in their words.
 fn only_words_differ(a: &EntityKind, b: &EntityKind) -> bool {
     match (a, b) {

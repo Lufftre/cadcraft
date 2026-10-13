@@ -314,3 +314,27 @@ fn renumbered_anonymous_blocks_are_the_same() {
     let r = s.execute("compare", &json!({"document": "A"})).unwrap();
     assert_eq!(counts(&r), (0, 0, 1, 0), "{r}");
 }
+
+#[test]
+fn exports_a_review_page() {
+    let mut s = base();
+    edited_copy(&mut s);
+    // Names are escaped in the page (layer names can't hold `<` or `"`, but `&` is fine).
+    let arc = handle_of(&s, "Arc");
+    s.execute("layer.new", &json!({"name": "R&D"})).unwrap();
+    s.execute("properties.set", &json!({"handles": [arc], "layer": "R&D"})).unwrap();
+    assert!(s.execute("compare.export", &json!({})).is_err(), "no comparison yet");
+    s.execute("compare", &json!({"document": "drawing1"})).unwrap();
+    let dir = std::env::temp_dir().join(format!("cadcraft-review-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("r.html");
+    let r = s.execute("compare.export", &json!({"path": path.to_string_lossy()})).unwrap();
+    assert!(r["areas"].as_u64().unwrap() >= 1, "{r}");
+    let html = std::fs::read_to_string(&path).unwrap();
+    assert!(html.starts_with("<!doctype html>"));
+    assert!(html.contains("Only in B: <b>1</b>") && html.contains("Only in Drawing1: <b>1</b>") && html.contains("Changed: <b>1</b>"), "counts");
+    assert!(html.contains("<h2>Overview</h2>") && html.contains("<h2>Area 1</h2>") && html.contains("<svg"));
+    assert!(!html.contains("<script"), "no scripts");
+    assert!(html.contains("<td>R&amp;D</td>") && !html.contains("R&D<"), "escaped layer name");
+    std::fs::remove_dir_all(&dir).ok();
+}

@@ -158,6 +158,7 @@ pub(super) fn paint(app: &mut CadApp, ctx: &egui::Context, p: &egui::Painter, xf
     let (added, removed, changed, name, areas, at, side) =
         (c.added.len(), c.removed.len(), c.changed.len(), c.other_name.clone(), c.regions.len(), c.at, c.side_by_side);
     let mut action = None;
+    let mut start = None;
     let top = left.map_or(rect.center_top(), |l| pos2((l.left() + rect.right()) / 2.0, rect.top()));
     egui::Area::new(id().with("bar")).order(egui::Order::Foreground).fixed_pos(top + vec2(-240.0, 8.0)).show(ctx, |ui| {
         egui::Frame::new().fill(t.cmd_bg).stroke(Stroke::new(1.0, t.cmd_border)).corner_radius(4.0).inner_margin(6.0).show(ui, |ui| {
@@ -181,6 +182,9 @@ pub(super) fn paint(app: &mut CadApp, ctx: &egui::Context, p: &egui::Painter, xf
                 if ui.button("▶").on_hover_text(crate::tl!("Next Change")).clicked() {
                     action = Some("compare.next");
                 }
+                if ui.button(crate::tl!("Export Review...")).on_hover_text(crate::tl!("Write the comparison as an HTML page")).clicked() {
+                    start = Some("compare.export");
+                }
                 if ui.button("×").on_hover_text(crate::tl!("Close Comparison")).clicked() {
                     action = Some("compareclose");
                 }
@@ -189,6 +193,10 @@ pub(super) fn paint(app: &mut CadApp, ctx: &egui::Context, p: &egui::Painter, xf
     });
     if let Some(a) = action {
         let _ = app.run(a, json!({}));
+    }
+    // Asks where to write the page at the command line.
+    if let Some(c) = start {
+        app.start(c);
     }
 }
 

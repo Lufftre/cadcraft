@@ -4,6 +4,7 @@
 //! cadcraft-cli info FILE.dxf                       summary as JSON
 //! cadcraft-cli textconv FILE.(dwg|dxf)             the drawing as stable text, one line per object (git textconv)
 //! cadcraft-cli diff OLD NEW                        what changed between two drawings (COMPARE), as text
+//! cadcraft-cli review FILE (--against REV | OLD) [-o OUT.html]   COMPARE as a self-contained HTML review page
 //! cadcraft-cli convert IN.dxf OUT.(dxf|svg|png) [--window x0,y0,x1,y1 | --view extents|current]
 //! cadcraft-cli run [FILE|--sample|--metric] [--script TEXT|--script-file F.scr] [--cmd 'id {json}']... [--save OUT] [--export OUT.png] [--window ... | --view ...]
 //! cadcraft-cli commands [FILTER]                   command catalog (JSON)
@@ -61,6 +62,7 @@ const USAGE: &str = "usage:
   cadcraft-cli info FILE.dxf
   cadcraft-cli textconv FILE.(dwg|dxf)
   cadcraft-cli diff OLD NEW
+  cadcraft-cli review FILE (--against BRANCH|COMMIT | OLD) [-o OUT.html]
   cadcraft-cli convert IN.dxf OUT.(dxf|dwg|svg|png|pdf) [FRAMING]
   cadcraft-cli run [FILE | --sample | --metric] [--script TEXT] [--script-file F.scr] [--cmd 'id {json}']... [--save OUT.dxf] [--export OUT.(png|svg|pdf)] [FRAMING]
   cadcraft-cli commands [FILTER]
@@ -251,6 +253,38 @@ fn diff(args: &[String]) -> Result<(), String> {
     for v in rows("changed") {
         outln!("~ {} {} ({})", field(&v, "type"), field(&v, "handle"), field(&v, "what"));
     }
+    Ok(())
+}
+
+/// `review FILE --against REV [-o OUT]` or `review FILE OLD [-o OUT]`: FILE compared with OLD,
+/// or with its own version in git revision REV, as an HTML page (default `FILE-review.html`).
+fn review(args: &[String]) -> Result<(), String> {
+    let (mut against, mut out, mut files) = (None, None, Vec::new());
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--against" => against = Some(it.next().ok_or("--against needs a branch, tag or commit")?.clone()),
+            "-o" | "--out" => out = Some(it.next().ok_or("-o needs a path")?.clone()),
+            f if !f.starts_with('-') => files.push(f.to_string()),
+            other => return Err(format!("review: unknown option {other}")),
+        }
+    }
+    let params = match (files.as_slice(), against) {
+        ([_], Some(rev)) => json!({ "revision": rev }),
+        ([_, old], None) => json!({ "path": old }),
+        _ => return Err(USAGE.into()),
+    };
+    let mut s = Session::empty();
+    let file = files.first().cloned().unwrap_or_default();
+    open(&mut s, &file)?;
+    let r = s.execute("compare", &params).map_err(|e| e.to_string())?;
+    eprintln!("{}", r.get("message").and_then(Value::as_str).unwrap_or_default());
+    let mut p = json!({});
+    if let Some(o) = out {
+        p["path"] = json!(o);
+    }
+    let w = s.execute("compare.export", &p).map_err(|e| e.to_string())?;
+    eprintln!("wrote {} ({} KB)", w["path"].as_str().unwrap_or_default(), w["bytes"].as_u64().unwrap_or(0) / 1024);
     Ok(())
 }
 
@@ -686,6 +720,7 @@ fn cli() -> ExitCode {
         Some("textconv") => {
             validate_options("textconv", &rest, NO_OPTIONS).and_then(|_| rest.first().ok_or_else(|| USAGE.to_string())).and_then(|p| textconv(p))
         }
+        Some("review") => review(&rest),
         Some("diff") => validate_options("diff", &rest, NO_OPTIONS).and_then(|_| diff(&rest)),
         Some("convert") => convert(&rest),
         Some("run") => run(&rest),

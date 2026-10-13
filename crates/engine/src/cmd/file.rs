@@ -59,6 +59,7 @@ pub fn entity_codec() -> Option<&'static EntityCodec> {
 pub mod compare;
 mod compare_git;
 pub mod listing;
+pub mod review;
 
 /// Hand finished file bytes to the user where there is no file system (the browser: a download).
 /// Arguments: file name, MIME type, bytes. `Ok` only once the delivery was actually started.

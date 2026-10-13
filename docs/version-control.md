@@ -1,6 +1,6 @@
 # Drawings in git
 
-> **Status:** step 1 of 4 (readable diffs, a review summary, compare with a branch in the app, side by side) · **Last updated:** 2026-10-13
+> **Status:** step 1 of 4 (readable diffs, a review summary, compare with a branch in the app, side by side, a review page) · **Last updated:** 2026-10-13
 
 CADCraft drawings can live in a git repository with readable history: `git diff`, `git log -p`
 and pull requests show which objects changed instead of "Binary files differ". Branching and
@@ -60,6 +60,17 @@ there, unchanged objects dimmed; ◀ ▶ step through the areas with changes, �
 version to the left with what is only there in red, this drawing to the right with what is only
 here in green, both always showing the same area. Pan and zoom either half; edit on the right.
 
+## A review page for pull requests
+
+`cadcraft-cli review plan.dwg --against main -o review.html` (or **Export Review…** in the
+comparison bar, `compare.export`) writes the comparison as one self-contained HTML file: the
+counts, an overview of every area with changes (numbered) for both versions side by side, a
+close-up of each area with the objects changed there, and the full list of changes. It needs no
+server and no scripts: open it from disk, attach it to a pull request, publish it as a CI
+artifact or mail it. The pictures are SVG drawn as finely as their close-ups need and hold only
+what they show, so the page stays small (about 250 KB for a 12,000-object, 11 MB drawing; about
+10 s to make). `review NEW OLD` compares two files instead of a git version.
+
 COMPARE takes a branch where it takes a file: `compare` then `main`, `HEAD~3`, a tag or a commit
 id. Scripts and agents: `{"command":"compare","params":{"revision":"main"}}`, and
 `compare.branches` lists what there is to compare with. The app runs the system's `git` to read
@@ -87,7 +98,7 @@ drawing once saved by CADCraft before branching to start from a clean diff.
 ## What comes next
 
 1. ~~Readable `git diff` (`textconv`) and a COMPARE summary (`diff`)~~ (this page).
-2. COMPARE as an image for pull requests: the overlay (green, red, grey) exported as PNG.
+2. ~~COMPARE as a page for pull requests~~ (`cadcraft-cli review`, Export Review…).
 3. A git-native drawing format: a folder with one small text file per object, so git stores only
    the objects that changed and merges edits to different objects without conflicts. Needs
    deterministic output and handles that two branches can't both allocate.
