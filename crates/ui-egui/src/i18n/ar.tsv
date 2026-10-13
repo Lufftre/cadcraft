@@ -170,6 +170,8 @@
 	Commits	الإيداعات
 	Company	الشركة
 	Compare Drawings...	مقارنة الرسومات...
+	Compare with Branch...	مقارنة مع فرع...
+	Branches to Compare With	الفروع المتاحة للمقارنة
 	Computer-aided design and drafting: an open-source, clean-room CAD application written in pure Rust.	تصميم وصياغة بمساعدة الحاسوب: تطبيق CAD مفتوح المصدر بمنهجية النسخ النظيف مكتوب بلغة Rust خالصة.
 	Concentric	تمركز
 	Cone	مخروط

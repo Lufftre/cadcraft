@@ -162,6 +162,8 @@
 	Commits	Commits
 	Company	Företag
 	Compare Drawings...	Jämför ritningar...
+	Compare with Branch...	Jämför med gren...
+	Branches to Compare With	Grenar att jämföra med
 	Computer-aided design and drafting: an open-source, clean-room CAD application written in pure Rust.	Datorstödd konstruktion och ritning: ett CAD-program med öppen källkod, skrivet från grunden i ren Rust.
 	Concentric	Koncentrisk
 	Cone	Kon

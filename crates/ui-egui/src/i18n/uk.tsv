@@ -161,6 +161,8 @@
 	Commits	Коміти
 	Company	Компанія
 	Compare Drawings...	Порівняти креслення...
+	Compare with Branch...	Порівняти з гілкою...
+	Branches to Compare With	Гілки для порівняння
 	Computer-aided design and drafting: an open-source, clean-room CAD application written in pure Rust.	Автоматизоване проєктування та креслення: CAD-програма з відкритим кодом, незалежно розроблена мовою Rust.
 	Concentric	Концентричність
 	Cone	Конус

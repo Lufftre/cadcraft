@@ -1,6 +1,6 @@
 # Drawings in git
 
-> **Status:** step 1 of 4 (readable diffs and a review summary) · **Last updated:** 2026-10-13
+> **Status:** step 1 of 4 (readable diffs, a review summary, compare with a branch in the app) · **Last updated:** 2026-10-13
 
 CADCraft drawings can live in a git repository with readable history: `git diff`, `git log -p`
 and pull requests show which objects changed instead of "Binary files differ". Branching and
@@ -48,8 +48,18 @@ Compared with plan.dwg: 3 only in this drawing, 0 only in plan.dwg, 3 changed, 6
 ~ Text 108 (text)
 ```
 
-To see the changes on the canvas, open the newer drawing in CADCraft and run COMPARE with the
-older one (Tools → Compare Drawings…).
+## Compare with a branch in the app
+
+Open the drawing from its git repository and choose **Tools → Compare with Branch…** (or type
+`compare.branch`). The command line offers the repository's branches, `main` first, and `HEAD`
+(the last commit, to see what you changed since): click one, or press Enter for the default. The
+canvas shows the differences against that version of the same file: green only here, red only
+there, unchanged objects dimmed; ◀ ▶ step through the areas with changes, ✕ ends it.
+
+COMPARE takes a branch where it takes a file: `compare` then `main`, `HEAD~3`, a tag or a commit
+id. Scripts and agents: `{"command":"compare","params":{"revision":"main"}}`, and
+`compare.branches` lists what there is to compare with. The app runs the system's `git` to read
+the old version (desktop only; save the drawing in the repository first).
 
 The same listing is the `drawing.listing` command (control channel, MCP, scripts), so an agent
 can read a drawing's state as text.

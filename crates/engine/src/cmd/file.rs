@@ -57,6 +57,7 @@ pub fn entity_codec() -> Option<&'static EntityCodec> {
 
 /// COMPARE (drawing comparison).
 pub mod compare;
+mod compare_git;
 pub mod listing;
 
 /// Hand finished file bytes to the user where there is no file system (the browser: a download).

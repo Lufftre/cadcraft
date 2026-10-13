@@ -31,6 +31,18 @@ fn counts(r: &Value) -> (u64, u64, u64, u64) {
     (c["added"].as_u64().unwrap(), c["removed"].as_u64().unwrap(), c["changed"].as_u64().unwrap(), c["common"].as_u64().unwrap())
 }
 
+/// Test file format: the bytes are "x", a drawing holding a line from 0,0 to x,0. Every test
+/// installs the same hooks (the first one installed stays).
+fn test_io() {
+    fn read(bytes: &[u8], _name: &str) -> Result<Drawing, String> {
+        let x: f64 = String::from_utf8_lossy(bytes).trim().parse().map_err(|_| "bad test file")?;
+        let mut d = Drawing::new_imperial();
+        d.add(&Space::Model, Common::default(), line(0.0, 0.0, x, 0.0)).map_err(|e| e.to_string())?;
+        Ok(d)
+    }
+    set_io(IoHooks { read, write: |_, _| Err("no writer in this test".into()), plot: None });
+}
+
 /// Open a copy of the drawing as "B" and edit it: the circle moves, the text goes, an arc comes.
 fn edited_copy(s: &mut Session) {
     let d: Drawing = s.doc().unwrap().clone();
@@ -106,14 +118,7 @@ fn navigates_areas_and_closes() {
 
 #[test]
 fn compares_a_file_read_through_the_io_hooks() {
-    // Test file format: the bytes are "x" — a drawing holding a line from 0,0 to x,0.
-    fn read(bytes: &[u8], _name: &str) -> Result<Drawing, String> {
-        let x: f64 = String::from_utf8_lossy(bytes).trim().parse().map_err(|_| "bad test file")?;
-        let mut d = Drawing::new_imperial();
-        d.add(&Space::Model, Common::default(), line(0.0, 0.0, x, 0.0)).map_err(|e| e.to_string())?;
-        Ok(d)
-    }
-    set_io(IoHooks { read, write: |_, _| Err("no writer in this test".into()), plot: None });
+    test_io();
     let dir = std::env::temp_dir().join(format!("cadcraft-compare-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("other.dxf");
@@ -208,4 +213,66 @@ fn new_words_in_a_text_are_a_text_change() {
     s.execute("move", &json!({"handles": [t], "delta": [1, 0]})).unwrap();
     let r = s.execute("compare", &json!({"document": "drawing1"})).unwrap();
     assert_eq!(r["changed"][0]["what"], "geometry", "{r}");
+}
+
+/// `git` in `dir`; false when git is missing (the test is skipped).
+fn git(dir: &std::path::Path, args: &[&str]) -> bool {
+    std::process::Command::new("git").arg("-C").arg(dir).args(args).output().is_ok_and(|o| o.status.success())
+}
+
+#[test]
+fn compares_with_a_git_branch() {
+    test_io();
+    let dir = std::env::temp_dir().join(format!("cadcraft-compare-git-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    if !git(&dir, &["init", "-q", "-b", "main"]) {
+        eprintln!("git is not available: skipped");
+        return;
+    }
+    let path = dir.join("plan.dxf");
+    let commit = |text: &str, msg: &str| {
+        std::fs::write(&path, text).unwrap();
+        assert!(git(&dir, &["add", "plan.dxf"]));
+        assert!(git(&dir, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", msg]));
+    };
+    commit("10", "ten");
+    assert!(git(&dir, &["switch", "-q", "-c", "wide"]));
+    commit("20", "twenty");
+    let mut s = Session::new();
+    s.execute("open", &json!({"path": path.to_string_lossy()})).unwrap();
+
+    // The line is 20 long here and 10 on main: the same object, changed.
+    let r = s.execute("compare", &json!({"revision": "main"})).unwrap();
+    assert_eq!(counts(&r), (0, 0, 1, 0), "{r}");
+    assert_eq!(r["other"], "main:plan.dxf");
+    // The last commit is this very file.
+    let r = s.execute("compare.branch", &json!({})).unwrap();
+    assert_eq!((counts(&r), r["other"].as_str()), ((0, 0, 0, 1), Some("HEAD:plan.dxf")), "{r}");
+    // Branches to pick from: the others, main first, then the last commit.
+    assert_eq!(s.execute("compare.branches", &json!({})).unwrap()["branches"], json!(["main", "HEAD"]));
+
+    // From the menu: the branches are the prompt's options, the first one the default.
+    s.cmdline("compare.branch").unwrap();
+    let p = s.current_prompt().unwrap();
+    assert_eq!((p.keywords.clone(), p.default.clone()), (vec!["main".to_string(), "HEAD".to_string()], Some("main".to_string())));
+    s.cmdline("main").unwrap();
+    assert!(s.log.last().unwrap().starts_with("Compared with main:plan.dxf: 0 only in this drawing"), "{:?}", s.log.last());
+    // COMPARE takes a branch where it takes a file.
+    s.cmdline("compare").unwrap();
+    s.cmdline("HEAD~1").unwrap();
+    assert!(s.log.last().unwrap().starts_with("Compared with HEAD~1:plan.dxf"), "{:?}", s.log.last());
+
+    // Hostile and missing revisions are errors.
+    for rev in ["", "-p", "--output=x", "a b", "main:other.dxf", "nope", &"x".repeat(300)] {
+        assert!(s.execute("compare", &json!({"revision": rev})).is_err(), "{rev}");
+    }
+    let e = s.execute("compare", &json!({"revision": "nope"})).unwrap_err().to_string();
+    assert!(e.contains("no plan.dxf on `nope`"), "{e}");
+    std::fs::remove_dir_all(&dir).ok();
+
+    // A drawing without a file has no git versions.
+    let mut s = Session::new();
+    let e = s.execute("compare", &json!({"revision": "main"})).unwrap_err().to_string();
+    assert!(e.contains("save it"), "{e}");
+    assert!(s.execute("compare.branches", &json!({})).is_err());
 }

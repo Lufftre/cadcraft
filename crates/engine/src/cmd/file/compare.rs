@@ -63,20 +63,38 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("compare", "Compare Drawings...", run_compare)
             .menu(&["Tools", "Compare Drawings..."])
             .params(
-                "{path} | {data: base64, name} | {document: index or title} → {other, added: [{handle, type}], removed, \
+                "{path} | {data: base64, name} | {document: index or title} | {revision: git branch, tag or commit of the drawing's own file} → {other, added: [{handle, type}], removed, \
                  changed: [{handle, other, type, what}], counts: {added, removed, changed, common}, regions, truncated, message}",
             )
             .noundo()
             .interactive(|_| Ok(Box::new(CompareM))),
+        CommandSpec::new("compare.branch", "Compare with Branch...", |s, p| run_compare(s, &json!({ "revision": str_param(p, "revision").unwrap_or("HEAD") })))
+            .menu(&["Tools", "Compare with Branch..."])
+            .params("{revision?: git branch, tag or commit (default HEAD, the last commit)} → as compare; branches: compare.branches")
+            .noundo()
+            .interactive(|s| Ok(Box::new(CompareBranchM::new(s)))),
+        CommandSpec::new("compare.branches", "Branches to Compare With", run_branches)
+            .params("→ {branches}: the git branches the drawing's file can be compared with (`HEAD` last)")
+            .noundo(),
         CommandSpec::new("compare.next", "Next Change", |s, _| step(s, 1)).params("→ {region, of}: zoom to the next area with changes").noundo(),
         CommandSpec::new("compare.previous", "Previous Change", |s, _| step(s, -1)).params("→ {region, of}").noundo(),
         CommandSpec::new("compareclose", "Close Comparison", run_close).params("{}: end the comparison and its overlay").noundo(),
     ]
 }
 
-/// Read the drawing to compare with from `{path}`, `{data, name}` or `{document}`.
+/// Read the drawing to compare with from `{path}`, `{data, name}`, `{document}` or `{revision}`.
 fn other_drawing(s: &Session, p: &Value) -> Result<(Arc<Drawing>, String)> {
     const CMD: &str = "compare";
+    if let Some(rev) = str_param(p, "revision") {
+        let rev = rev.trim();
+        let path = super::compare_git::drawing_path(s, CMD)?;
+        let hooks = io().ok_or_else(|| bad(CMD, "file formats are not available in this build"))?;
+        let bytes = super::compare_git::read_revision(CMD, &path, rev)?;
+        let file = path.rsplit(['/', '\\']).next().unwrap_or(&path);
+        let name = format!("{rev}:{file}");
+        let d = (hooks.read)(&bytes, &path).map_err(|e| bad(CMD, format!("{name}: {e}")))?;
+        return Ok((Arc::new(d), name));
+    }
     if let Some(d) = p.get("document").filter(|v| !v.is_null()) {
         let st = match (d.as_u64(), d.as_str()) {
             (Some(i), _) => usize::try_from(i).ok().and_then(|i| s.docs.get(i)),
@@ -419,7 +437,13 @@ fn run_close(s: &mut Session, _p: &Value) -> Result<Value> {
     Ok(json!({ "closed": had }))
 }
 
-/// COMPARE at the command line: the drawing to compare with, a file path or an open drawing's name.
+fn run_branches(s: &mut Session, _p: &Value) -> Result<Value> {
+    let path = super::compare_git::drawing_path(s, "compare.branches")?;
+    Ok(json!({ "branches": super::compare_git::branches(&path) }))
+}
+
+/// COMPARE at the command line: the drawing to compare with, an open drawing's name, a file path,
+/// or a git branch, tag or commit of the drawing's own file.
 struct CompareM;
 
 impl Interactive for CompareM {
@@ -427,7 +451,7 @@ impl Interactive for CompareM {
         "COMPARE"
     }
     fn prompt(&self, _s: &Session) -> Prompt {
-        Prompt::new("Enter the drawing to compare with (an open drawing's name or a file path)", Accept::TEXT)
+        Prompt::new("Enter the drawing to compare with (an open drawing's name, a file path, or a git branch or commit)", Accept::TEXT)
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         let Input::Text(t) = i else { return Ok(Step::Done) };
@@ -436,8 +460,63 @@ impl Interactive for CompareM {
             return Ok(Step::Done);
         }
         let open = s.docs.iter().enumerate().any(|(i, d)| i != s.active && d.title.eq_ignore_ascii_case(t));
-        let p = if open { json!({ "document": t }) } else { json!({ "path": t }) };
+        let p = if open {
+            json!({ "document": t })
+        } else if is_file(t) || s.state()?.path.is_none() || super::compare_git::check_revision("compare", t).is_err() {
+            json!({ "path": t })
+        } else {
+            json!({ "revision": t })
+        };
         let r = run_compare(s, &p)?;
+        if let Some(m) = r.get("message").and_then(Value::as_str) {
+            s.echo(m.to_string());
+        }
+        Ok(Step::Done)
+    }
+}
+
+fn is_file(_t: &str) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    return std::path::Path::new(_t).is_file();
+    #[cfg(target_arch = "wasm32")]
+    false
+}
+
+/// Compare with Branch: the branches of the drawing's git repository as options (`main` first,
+/// `HEAD` for the last commit); any other branch, tag or commit can be typed.
+struct CompareBranchM {
+    branches: Vec<String>,
+}
+
+impl CompareBranchM {
+    fn new(s: &Session) -> Self {
+        let branches = s.state().ok().and_then(|st| st.path.clone()).map(|p| super::compare_git::branches(&p)).unwrap_or_default();
+        CompareBranchM { branches }
+    }
+}
+
+impl Interactive for CompareBranchM {
+    fn name(&self) -> &'static str {
+        "COMPARE"
+    }
+    fn prompt(&self, _s: &Session) -> Prompt {
+        let kws: Vec<&str> = self.branches.iter().map(String::as_str).collect();
+        let p = Prompt::new("Compare with which branch or commit?", Accept::TEXT).kw(&kws);
+        match self.branches.first() {
+            Some(b) => p.default(b.clone()),
+            None => p,
+        }
+    }
+    fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
+        let rev = match i {
+            Input::Text(t) | Input::Keyword(t) if !t.trim().is_empty() => t.trim().to_string(),
+            Input::Text(_) | Input::Enter => match self.branches.first() {
+                Some(b) => b.clone(),
+                None => return Ok(Step::Done),
+            },
+            _ => return Ok(Step::Done),
+        };
+        let r = run_compare(s, &json!({ "revision": rev }))?;
         if let Some(m) = r.get("message").and_then(Value::as_str) {
             s.echo(m.to_string());
         }

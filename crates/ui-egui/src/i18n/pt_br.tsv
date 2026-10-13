@@ -158,6 +158,8 @@
 	Commits	Commits
 	Company	Empresa
 	Compare Drawings...	Comparar desenhos...
+	Compare with Branch...	Comparar com branch...
+	Branches to Compare With	Branches para comparar
 	Computer-aided design and drafting: an open-source, clean-room CAD application written in pure Rust.	Projeto e desenho assistidos por computador: um aplicativo CAD de código aberto, desenvolvido em clean-room e escrito em Rust puro.
 	Concentric	Concêntrico
 	Cone	Cone

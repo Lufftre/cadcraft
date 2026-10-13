@@ -164,6 +164,8 @@ menu	Modify	Edita
 	Commits	Commit
 	Company	Azienda
 	Compare Drawings...	Confronta disegni...
+	Compare with Branch...	Confronta con ramo...
+	Branches to Compare With	Rami da confrontare
 	Computer-aided design and drafting: an open-source, clean-room CAD application written in pure Rust.	Progettazione e disegno assistiti dal computer: un'applicazione CAD open source, sviluppata in clean room e scritta interamente in Rust.
 	Concentric	Concentrico
 	Cone	Cono
