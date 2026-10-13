@@ -194,3 +194,18 @@ fn derived_dimension_fields_are_not_differences() {
     let r = s.execute("compare", &json!({"document": 0})).unwrap();
     assert_eq!(counts(&r), (0, 0, 0, 1), "{r}");
 }
+
+#[test]
+fn new_words_in_a_text_are_a_text_change() {
+    let mut s = base();
+    let d: Drawing = s.doc().unwrap().clone();
+    s.open_drawing(d, "B", None);
+    let t = handle_of(&s, "Text");
+    s.execute("textedit", &json!({"handle": t, "text": "Changed"})).unwrap();
+    let r = s.execute("compare", &json!({"document": "drawing1"})).unwrap();
+    assert_eq!((r["changed"][0]["type"].as_str(), r["changed"][0]["what"].as_str()), (Some("Text"), Some("text")), "{r}");
+    // Moved as well: the geometry changed too.
+    s.execute("move", &json!({"handles": [t], "delta": [1, 0]})).unwrap();
+    let r = s.execute("compare", &json!({"document": "drawing1"})).unwrap();
+    assert_eq!(r["changed"][0]["what"], "geometry", "{r}");
+}

@@ -1,6 +1,6 @@
 # Where CADCraft falls short of AutoCAD
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (multiline attributes read, drawn and saved: F17 narrowed) · **Target:** Autodesk AutoCAD 2027
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (drawings in git: E6 added, step 1 landed; FF15 added) · **Target:** Autodesk AutoCAD 2027
 
 Every known shortfall, one row each, ranked within each section by user impact. This is the work
 list: agents pick from here (top of a section first), and remove or update a row in the same PR
@@ -82,6 +82,7 @@ Detail: [file-format-parity.md](file-format-parity.md).
 | FF12 | DWG in the web build | Medium | 6–10 |
 | FF13 | R12 binary DXF, pre-R13 DWG | Low | 10–20 |
 | FF14 | SVG import leftovers (shapes, paths, groups and Inkscape layers landed, #636): no CSS classes (`<style>`), `use` references, fills and gradients, text or embedded images; rounded rectangle corners (`rx`/`ry`) are ignored | Low-medium | 2–4 |
+| FF15 | Round-trip losses the listing shows (`cadcraft-cli textconv` of an AutoCAD drawing against the same drawing saved by CADCraft): an attribute on layer `0` is saved on its block reference's layer (`attrib_common`, deliberate but not what AutoCAD stores), and text, mtext, attributes, hatches and dimensions in a tilted plane lose their extrusion. Lines, points and the other 2D objects keep it. A second save is identical | Low on screen, but every first save shows false changes in `git diff` | 2–4 |
 
 ## Hardware
 
@@ -132,6 +133,7 @@ Detail: [localization-parity.md](localization-parity.md).
 | E3 | Express Tools equivalents (TXT2MTXT, BREAKLINE, BURST, NCOPY exists, SUPERHATCH, Move/Copy/Rotate) | 30–50 |
 | E4 | Plug-in API (owner decision: Rust/WASM plug-ins rather than ObjectARX/.NET) | 30–50 |
 | E5 | CUI customisation and alias (`.pgp`) editor | 15–25 |
+| E6 | Drawings in git ([version-control.md](version-control.md)): readable `git diff` of DWG/DXF (`cadcraft-cli textconv`, `drawing.listing`) and a COMPARE summary as git difftool (`cadcraft-cli diff`) landed; left: COMPARE overlay as an image for pull requests, a folder-per-drawing format with one file per object and handles branches can't both allocate, a merge driver and a check after merging. Beyond AutoCAD, which has no branching or merging of drawings | 25–40 |
 
 ## AI features
 
@@ -145,6 +147,7 @@ Detail: [localization-parity.md](localization-parity.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Drawings in git: `drawing.listing` / `cadcraft-cli textconv` (stable text, one line per object) and `cadcraft-cli diff`; COMPARE reports a text-only edit as "text"; new E6 (branching and merging) and FF15 (round-trip losses the listing shows: attribute layer 0, tilted text, hatches and dimensions) |
 | 2026-10-12 | minor | Object transparency (entity, ByLayer, ByBlock) is drawn: on screen (TRANSPARENCYDISPLAY, on by default), in PNG/SVG exports, and in plots when the page setup's "Plot transparency" is on (PDF alpha, PNG blending, SVG opacity; PLOTTRANSPARENCYOVERRIDE): F14 narrowed |
 | 2026-10-12 | minor | Hatch and Gradient dialog (HATCH, GRADIENT; HPDLGMODE) and Hatch Edit dialog (HATCHEDIT, right-click, double-click a hatch): F13 narrowed to Preview, Inherit Properties and boundary add/remove in edit mode |
 | 2026-10-12 | minor | A bare system variable name typed at the command line (ORTHOMODE, GRIDMODE…) runs SETVAR on that variable, as in AutoCAD; U10 narrowed |

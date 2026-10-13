@@ -109,8 +109,40 @@ fn read_path(_path: &str) -> Result<Vec<u8>> {
     Err(bad("compare", "paths are not available on the web: open the other drawing and compare with it by name (`document`)"))
 }
 
+/// Two texts (text, mtext, attribute definition) that differ only in their words.
+fn only_words_differ(a: &EntityKind, b: &EntityKind) -> bool {
+    match (a, b) {
+        (EntityKind::Text(x), EntityKind::Text(y)) => x.value != y.value && cadcraft_doc::Text { value: y.value.clone(), ..x.clone() } == *y,
+        (EntityKind::MText(x), EntityKind::MText(y)) => {
+            x.contents != y.contents && cadcraft_doc::MText { contents: y.contents.clone(), ..x.clone() } == *y
+        }
+        (EntityKind::AttDef(x), EntityKind::AttDef(y)) => {
+            let mut z = x.clone();
+            z.text.value.clone_from(&y.text.value);
+            x.text.value != y.text.value && z == *y
+        }
+        _ => false,
+    }
+}
+
+/// An object's geometry as JSON, without what is derived from it (a dimension's generated block,
+/// its cached measurement, and its text position unless the user placed the text) and with
+/// coordinates rounded: equal for equal geometry, also across a write and read back.
+pub(super) fn normalized(k: &EntityKind) -> Value {
+    let mut v = serde_json::to_value(k).unwrap_or(Value::Null);
+    if let (Some(o), EntityKind::Dimension(dm)) = (v.as_object_mut(), k) {
+        o.remove("block");
+        o.remove("measurement");
+        if !dm.user_text_pos {
+            o.remove("textMid");
+        }
+    }
+    round(&mut v, 0);
+    v
+}
+
 /// Rounds coordinates (1e-6) so that a drawing written and read back still matches itself.
-fn round(v: &mut Value, depth: usize) {
+pub(super) fn round(v: &mut Value, depth: usize) {
     if depth > 64 {
         return;
     }
@@ -141,18 +173,7 @@ impl<'a> Signer<'a> {
     }
     fn geometry(&mut self, k: &EntityKind, depth: usize) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        let mut v = serde_json::to_value(k).unwrap_or(Value::Null);
-        // What is derived from the geometry is not compared: a dimension's generated block, its
-        // cached measurement, and its text position unless the user placed the text.
-        if let (Some(o), EntityKind::Dimension(dm)) = (v.as_object_mut(), k) {
-            o.remove("block");
-            o.remove("measurement");
-            if !dm.user_text_pos {
-                o.remove("textMid");
-            }
-        }
-        round(&mut v, 0);
-        v.to_string().hash(&mut h);
+        normalized(k).to_string().hash(&mut h);
         if let EntityKind::Insert(i) = k {
             self.block(&i.block, depth).hash(&mut h);
         }
@@ -335,7 +356,10 @@ fn run_compare(s: &mut Session, p: &Value) -> Result<Value> {
         .take(MAX_LISTED)
         .filter_map(|(a, b, geom, props)| {
             let x = cur.entity(*a)?;
+            let words = other.entity(*b).is_some_and(|y| only_words_differ(&x.kind, &y.kind));
             let what = match (geom, props) {
+                (true, true) if words => "text and properties",
+                (true, false) if words => "text",
                 (true, true) => "geometry and properties",
                 (true, false) => "geometry",
                 _ => "properties",

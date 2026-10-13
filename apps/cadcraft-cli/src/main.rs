@@ -2,6 +2,8 @@
 //!
 //! ```text
 //! cadcraft-cli info FILE.dxf                       summary as JSON
+//! cadcraft-cli textconv FILE.(dwg|dxf)             the drawing as stable text, one line per object (git textconv)
+//! cadcraft-cli diff OLD NEW                        what changed between two drawings (COMPARE), as text
 //! cadcraft-cli convert IN.dxf OUT.(dxf|svg|png) [--window x0,y0,x1,y1 | --view extents|current]
 //! cadcraft-cli run [FILE|--sample|--metric] [--script TEXT|--script-file F.scr] [--cmd 'id {json}']... [--save OUT] [--export OUT.png] [--window ... | --view ...]
 //! cadcraft-cli commands [FILTER]                   command catalog (JSON)
@@ -57,6 +59,8 @@ fn stdout_failed(e: std::io::Error) {
 
 const USAGE: &str = "usage:
   cadcraft-cli info FILE.dxf
+  cadcraft-cli textconv FILE.(dwg|dxf)
+  cadcraft-cli diff OLD NEW
   cadcraft-cli convert IN.dxf OUT.(dxf|dwg|svg|png|pdf) [FRAMING]
   cadcraft-cli run [FILE | --sample | --metric] [--script TEXT] [--script-file F.scr] [--cmd 'id {json}']... [--save OUT.dxf] [--export OUT.(png|svg|pdf)] [FRAMING]
   cadcraft-cli commands [FILTER]
@@ -215,6 +219,38 @@ fn info(path: &str) -> Result<(), String> {
     open(&mut s, path)?;
     let v = s.execute("drawing.inspect", &json!({ "entities": false })).map_err(|e| e.to_string())?;
     outln!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+    Ok(())
+}
+
+/// `textconv FILE`: the drawing as stable text for `git diff` (`.gitattributes`: `*.dwg diff=cadcraft`,
+/// `git config diff.cadcraft.textconv "cadcraft-cli textconv"`; see docs/version-control.md).
+fn textconv(path: &str) -> Result<(), String> {
+    let mut s = Session::empty();
+    open(&mut s, path)?;
+    let v = s.execute("drawing.listing", &json!({})).map_err(|e| e.to_string())?;
+    let text = v.get("text").and_then(Value::as_str).unwrap_or_default();
+    outln!("{}", text.trim_end_matches('\n'));
+    Ok(())
+}
+
+/// `diff OLD NEW`: COMPARE of NEW's model space with OLD's, as one line per difference.
+fn diff(args: &[String]) -> Result<(), String> {
+    let [old, new] = args else { return Err(USAGE.into()) };
+    let mut s = Session::empty();
+    open(&mut s, new)?;
+    let r = s.execute("compare", &json!({ "path": old })).map_err(|e| e.to_string())?;
+    outln!("{}", r.get("message").and_then(Value::as_str).unwrap_or_default());
+    let rows = |key: &str| r.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+    let field = |v: &Value, key: &str| v.get(key).and_then(Value::as_str).unwrap_or_default().to_string();
+    for v in rows("added") {
+        outln!("+ {} {}", field(&v, "type"), field(&v, "handle"));
+    }
+    for v in rows("removed") {
+        outln!("- {} {}", field(&v, "type"), field(&v, "handle"));
+    }
+    for v in rows("changed") {
+        outln!("~ {} {} ({})", field(&v, "type"), field(&v, "handle"), field(&v, "what"));
+    }
     Ok(())
 }
 
@@ -647,6 +683,10 @@ fn cli() -> ExitCode {
     let rest: Vec<String> = args.iter().skip(1).cloned().collect();
     let r = match args.first().map(String::as_str) {
         Some("info") => validate_options("info", &rest, NO_OPTIONS).and_then(|_| rest.first().ok_or_else(|| USAGE.to_string())).and_then(|p| info(p)),
+        Some("textconv") => {
+            validate_options("textconv", &rest, NO_OPTIONS).and_then(|_| rest.first().ok_or_else(|| USAGE.to_string())).and_then(|p| textconv(p))
+        }
+        Some("diff") => validate_options("diff", &rest, NO_OPTIONS).and_then(|_| diff(&rest)),
         Some("convert") => convert(&rest),
         Some("run") => run(&rest),
         Some("perf") => validate_options("perf", &rest, NO_OPTIONS).and_then(|_| perf(&rest)),
